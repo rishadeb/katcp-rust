@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["SensorStatus","SensorType"],"struct":["Sensor","SensorReading"],"trait":["SensorObserver"]};

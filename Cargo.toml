@@ -1,0 +1,29 @@
+[package]
+name = "katcp"
+version = "0.1.0"
+edition = "2021"
+description = "A Rust implementation of the KATCP (Karoo Array Telescope Control Protocol)"
+license = "MIT"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+bytes = "1"
+thiserror = "2"
+tracing = "0.1"
+regex = "1"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tracing-subscriber = "0.3"
+
+[[example]]
+name = "device_server"
+path = "examples/device_server.rs"
+
+[[example]]
+name = "client"
+path = "examples/client.rs"
+
+[[example]]
+name = "sensor_server"
+path = "examples/sensor_server.rs"

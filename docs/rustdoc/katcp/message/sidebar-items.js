@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_MSG_SIZE"],"enum":["MessageError","MessageType"],"struct":["Message","MessageParser"]};
