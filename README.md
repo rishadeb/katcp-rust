@@ -1,5 +1,7 @@
 # katcp-rust
 
+[![CI](https://github.com/rishadeb/katcp-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/rishadeb/katcp-rust/actions/workflows/ci.yml)
+
 A Rust implementation of the [KATCP](https://katcp-python.readthedocs.io/) (Karoo Array Telescope Control Protocol) version 5, providing both a device server and async client library built on [tokio](https://tokio.rs/).
 
 > **Disclaimer:** This library was developed entirely by Claude Opus (Anthropic) using the KATCP V5 protocol guidelines and [katcp-python](https://github.com/ska-sa/katcp-python) as the reference implementation. It has not been reviewed or endorsed by the SKA-SA team.
