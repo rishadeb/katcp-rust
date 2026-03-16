@@ -202,7 +202,7 @@ impl SamplingObserver {
                         .unwrap_or("0")
                         .parse()
                         .unwrap_or(0.0);
-                    (cur_val - last_val).abs() >= threshold
+                    (cur_val - last_val).abs() > threshold
                 } else {
                     true
                 };
@@ -212,15 +212,20 @@ impl SamplingObserver {
                 }
                 changed
             }
-            SamplingStrategy::EventRate(min_s, min_n, _max_s, _max_n) => {
+            SamplingStrategy::EventRate(min_s, min_n, max_s, max_n) => {
                 let min_period = std::time::Duration::new(min_s, min_n);
+                let max_period = std::time::Duration::new(max_s, max_n);
                 let now = Instant::now();
                 let changed = state.last_value.as_ref() != Some(&reading.value);
                 let rate_ok = state
                     .last_sent
                     .map(|t| now.duration_since(t) >= min_period)
                     .unwrap_or(true);
-                if changed && rate_ok {
+                let max_elapsed = state
+                    .last_sent
+                    .map(|t| now.duration_since(t) >= max_period)
+                    .unwrap_or(false);
+                if (changed && rate_ok) || max_elapsed {
                     state.last_value = Some(reading.value.clone());
                     state.last_sent = Some(now);
                     true
@@ -228,8 +233,9 @@ impl SamplingObserver {
                     false
                 }
             }
-            SamplingStrategy::DifferentialRate(threshold, min_s, min_n, _max_s, _max_n) => {
+            SamplingStrategy::DifferentialRate(threshold, min_s, min_n, max_s, max_n) => {
                 let min_period = std::time::Duration::new(min_s, min_n);
+                let max_period = std::time::Duration::new(max_s, max_n);
                 let now = Instant::now();
                 let diff_ok = if let Some(ref last) = state.last_value {
                     let last_val: f64 = std::str::from_utf8(last)
@@ -240,7 +246,7 @@ impl SamplingObserver {
                         .unwrap_or("0")
                         .parse()
                         .unwrap_or(0.0);
-                    (cur_val - last_val).abs() >= threshold
+                    (cur_val - last_val).abs() > threshold
                 } else {
                     true
                 };
@@ -248,7 +254,11 @@ impl SamplingObserver {
                     .last_sent
                     .map(|t| now.duration_since(t) >= min_period)
                     .unwrap_or(true);
-                if diff_ok && rate_ok {
+                let max_elapsed = state
+                    .last_sent
+                    .map(|t| now.duration_since(t) >= max_period)
+                    .unwrap_or(false);
+                if (diff_ok && rate_ok) || max_elapsed {
                     state.last_value = Some(reading.value.clone());
                     state.last_sent = Some(now);
                     true
@@ -378,10 +388,77 @@ mod tests {
 
         let r2 = SensorReading::new(2.0, crate::sensor::SensorStatus::Nominal, b"12".to_vec());
         obs.on_update("test-sensor", &r2);
-        assert!(rx.try_recv().is_err()); // diff < 5
+        assert!(rx.try_recv().is_err()); // diff 2 < 5, not sent
 
-        let r3 = SensorReading::new(3.0, crate::sensor::SensorStatus::Nominal, b"20".to_vec());
+        // Exactly at threshold should NOT send (spec says "more than")
+        let r3 = SensorReading::new(3.0, crate::sensor::SensorStatus::Nominal, b"15".to_vec());
         obs.on_update("test-sensor", &r3);
-        assert!(rx.try_recv().is_ok()); // diff >= 5
+        assert!(rx.try_recv().is_err()); // diff == 5, not sent
+
+        // Exceeding threshold should send
+        let r4 = SensorReading::new(4.0, crate::sensor::SensorStatus::Nominal, b"20".to_vec());
+        obs.on_update("test-sensor", &r4);
+        assert!(rx.try_recv().is_ok()); // diff 10 > 5, sent
+    }
+
+    #[test]
+    fn test_differential_with_float_sensor_values() {
+        // Reproduce the wind-speed scenario: threshold=2, values formatted
+        // as produced by set_float
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let obs = SamplingObserver::new(
+            "wind-speed".into(),
+            SamplingStrategy::Differential(2.0),
+            test_addr(),
+            tx,
+        );
+
+        // Simulate: 15.0 + 10.0 * sin(tick * 0.1) for consecutive ticks
+        let values: Vec<f64> = (0..20)
+            .map(|tick| 15.0 + 10.0 * (tick as f64 * 0.1).sin())
+            .collect();
+
+        let mut sent_values: Vec<f64> = Vec::new();
+        let mut total_updates = 0;
+
+        for (i, &val) in values.iter().enumerate() {
+            let val_bytes = format!("{:.17e}", val).into_bytes();
+            let status = if val > 20.0 {
+                crate::sensor::SensorStatus::Warn
+            } else {
+                crate::sensor::SensorStatus::Nominal
+            };
+            let reading = SensorReading::new(i as f64, status, val_bytes);
+            obs.on_update("wind-speed", &reading);
+            total_updates += 1;
+
+            if rx.try_recv().is_ok() {
+                sent_values.push(val);
+            }
+        }
+
+        // First value should always be sent
+        assert!(!sent_values.is_empty(), "at least one value should be sent");
+
+        // Not all updates should be sent (filter must be working)
+        assert!(
+            sent_values.len() < total_updates,
+            "differential filter should suppress some updates: sent {} of {}",
+            sent_values.len(),
+            total_updates
+        );
+
+        // Every sent value (after the first) must differ from the previous sent
+        // value by MORE than the threshold
+        for i in 1..sent_values.len() {
+            let diff = (sent_values[i] - sent_values[i - 1]).abs();
+            assert!(
+                diff > 2.0,
+                "sent values {} and {} differ by {} which is not > threshold 2.0",
+                sent_values[i - 1],
+                sent_values[i],
+                diff
+            );
+        }
     }
 }

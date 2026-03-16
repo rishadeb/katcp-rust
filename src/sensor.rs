@@ -336,7 +336,7 @@ impl Sensor {
 
     /// Set the sensor value from a formatted float.
     pub fn set_float(&self, value: f64, status: SensorStatus) {
-        self.set_value(format!("{:.17e}", value).into_bytes(), status, None);
+        self.set_value(format!("{}", value).into_bytes(), status, None);
     }
 
     /// Set the sensor value from a boolean.
